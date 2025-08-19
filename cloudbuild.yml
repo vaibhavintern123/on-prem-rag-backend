@@ -3,7 +3,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'build',
-      '-t', 'us-central1-docker.pkg.dev/data-workshops/on-prem-backend/on-prem-backend:latest',
+      '-t', 'us-central1-docker.pkg.dev/data-workshops/on-prem-rag-backend/on-prem-rag-backend:latest',
       '.'
     ]
 
@@ -11,21 +11,21 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'push',
-      'us-central1-docker.pkg.dev/data-workshops/on-prem-backend/on-prem-backend:latest'
+      'us-central1-docker.pkg.dev/data-workshops/on-prem-rag-backend/on-prem-rag-backend:latest'
     ]
 
   # Step 3: Deploy to Cloud Run
   - name: 'gcr.io/cloud-builders/gcloud'
     args: [
-      'run', 'deploy', 'on-prem-backend',
-      '--image', 'us-central1-docker.pkg.dev/data-workshops/on-prem-backend/on-prem-backend:latest',
+      'run', 'deploy', 'on-prem-rag-backend',
+      '--image', 'us-central1-docker.pkg.dev/data-workshops/on-prem-rag-backend/on-prem-rag-backend:latest',
       '--platform', 'managed',
       '--region', 'us-central1',
       '--allow-unauthenticated',
     ]
 
 images:
-  - 'us-central1-docker.pkg.dev/data-workshops/on-prem-backend/on-prem-backend:latest'
+  - 'us-central1-docker.pkg.dev/data-workshops/on-prem-rag-backend/on-prem-rag-backend:latest'
 
 options:
   logging: CLOUD_LOGGING_ONLY
