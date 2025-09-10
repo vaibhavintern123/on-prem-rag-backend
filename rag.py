@@ -13,7 +13,7 @@ class ChatRequest(BaseModel):
 # === CONFIG ===
 CHROMA_DIR = "chroma_store"
 COLLECTION_NAME = "txt_knowledge"
-GROQ_API_KEY = "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"  # 🔑 replace with env var in production
+GROQ_API_KEY = "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"  # 🔑 replace with env var in production
 
 # --- Prefer GPU if available ---
 try:
