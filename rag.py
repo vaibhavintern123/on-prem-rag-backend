@@ -1,15 +1,15 @@
-# rag_api.py
 import chromadb
 from chromadb.utils import embedding_functions
 from groq import Groq
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-import asyncio
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+# === Request model ===
 class ChatRequest(BaseModel):
     message: str
+
 # === CONFIG ===
 CHROMA_DIR = "chroma_store"
 COLLECTION_NAME = "txt_knowledge"
@@ -39,7 +39,7 @@ collection = chroma_client.get_collection(
 # === Init Groq client ===
 client = Groq(api_key=GROQ_API_KEY)
 
-# --- Conversation memory (shared per server instance) ---
+# --- Conversation memory ---
 conversation_history = [
     {"role": "system", "content": """You are a helpful assistant.
 Answer the user queries using ONLY the provided context.
@@ -58,42 +58,7 @@ def smart_n_results(user_query: str) -> int:
     else:
         return 4
 
-# # === Retrieve & clean context ===
-# def retrieve_context(user_query: str) -> str:
-#     n = smart_n_results(user_query)
-#     results = collection.query(query_texts=[user_query], n_results=n)
-
-#     docs = results["documents"][0]
-#     scores = results["distances"][0]
-
-#     threshold = 0.5
-#     filtered = [(doc, score) for doc, score in zip(docs, scores) if score < threshold]
-
-#     if not filtered:
-#         filtered = list(zip(docs, scores))
-
-#     seen = set()
-#     unique_docs = []
-#     for doc, _ in filtered:
-#         if doc not in seen:
-#             seen.add(doc)
-#             unique_docs.append(doc)
-
-#     return "\n\n".join(unique_docs[:10])
-
-# === FastAPI app ===
-app = FastAPI()
-
-# Enable CORS (allow all origins)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# === Retrieve & clean context with citations ===
+# === Retrieve context with citations ===
 def retrieve_context(user_query: str):
     n = smart_n_results(user_query)
     results = collection.query(query_texts=[user_query], n_results=n)
@@ -114,13 +79,12 @@ def retrieve_context(user_query: str):
         if doc not in seen:
             seen.add(doc)
             unique_docs.append(doc)
-            citations.append({"id": doc_id, "score": score, "snippet": doc[:200]})  # snippet preview
+            citations.append({"id": doc_id, "score": score, "snippet": doc[:len(doc)]})
 
     return "\n\n".join(unique_docs[:10]), citations
 
-
-# === Stream generator (with citations) ===
-async def generate_stream(user_query: str):
+# === Generate assistant response ===
+def generate_response(user_query: str):
     context, citations = retrieve_context(user_query)
     context_message = {"role": "system", "content": f"Context for this turn:\n{context}"}
 
@@ -133,33 +97,40 @@ async def generate_stream(user_query: str):
         max_completion_tokens=2000,
         top_p=1,
         reasoning_effort="medium",
-        stream=True,
+        stream=False,  # Non-streaming
     )
 
-    full_response = ""
-    for chunk in completion:
-        if chunk.choices[0].delta.content:
-            token = chunk.choices[0].delta.content
-            full_response += token
-            yield token
-            await asyncio.sleep(0)
+    assistant_text = completion.choices[0].message.content
 
-    # Append response + citations to conversation
+    # Save to conversation history
     conversation_history.append({"role": "user", "content": user_query})
-    conversation_history.append({"role": "assistant", "content": full_response})
+    conversation_history.append({"role": "assistant", "content": assistant_text})
 
-    # Stream citations at the end
-    yield "\n\n---\n**Sources:**\n"
-    for c in citations:
-        yield f"- {c['id']} (score={c['score']:.3f})\n"
+    return {
+        "text": assistant_text,
+        "sources": citations
+    }
 
+# === FastAPI app ===
+app = FastAPI()
 
-# === API endpoint ===
+# Enable CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# === Chat endpoint ===
 @app.post("/chat")
 async def chat(body: ChatRequest):
-    user_message = body.message
-    return StreamingResponse(generate_stream(user_message), media_type="text/markdown")
-
+    try:
+        response = generate_response(body.message)
+        return JSONResponse(response)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 # === Reset endpoint ===
 @app.get("/reset")
@@ -167,3 +138,8 @@ async def reset():
     global conversation_history
     conversation_history = conversation_history[:1]
     return {"status": "ok", "message": "Conversation history cleared."}
+
+# === Health check ===
+@app.get("/")
+async def health():
+    return {"status": "ok"}
