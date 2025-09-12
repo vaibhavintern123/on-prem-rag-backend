@@ -5,3 +5,7 @@ sentence-transformers
 torch
 groq
 pydantic
+requests
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
